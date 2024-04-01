@@ -1,3 +1,4 @@
+use std::convert::From;
 use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -63,6 +64,7 @@ impl DataStore for IpfsRpcClient {
         immediate: bool,
     ) -> Result<(), DataStoreError> {
         // Save the data to a file
+        println!("Store::store - cid: {:?}", cid);
         println!("Storing data to IPFS - value length: {}", data.len());
         let rip_cid = RipCid::from(cid.clone());
         let reader = std::io::Cursor::new(data);
@@ -82,6 +84,16 @@ impl DataStore for IpfsRpcClient {
         if res_cid == rip_cid {
             Ok(())
         } else {
+            println!("Error storing data to IPFS -- CIDs do not match");
+            println!("Expected: {:?}", rip_cid);
+            println!("Actual: {:?}", res_cid);
+
+            // While we're at it try converting back to BanyanCid
+            let banyan_cid: BanyanCid = rip_cid.into();
+            println!("BanyanCid: {:?}", banyan_cid);
+            let res_banyan_cid: BanyanCid = res_cid.into();
+            println!("ResBanyanCid: {:?}", res_banyan_cid);
+
             Err(DataStoreError::StoreFailure)
         }
     }
