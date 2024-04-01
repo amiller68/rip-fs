@@ -2,6 +2,8 @@ use std::io::Read;
 use std::ops::Deref;
 use std::str::FromStr;
 
+use async_trait::async_trait;
+use banyanfs::stores::{DataStore, DataStoreError};
 use futures_util::TryStreamExt;
 use http::uri::Scheme;
 use ipfs_api_backend_hyper::request::{Add as AddRequest, BlockPut as BlockPutRequest};
@@ -9,7 +11,7 @@ use ipfs_api_backend_hyper::IpfsApi;
 use ipfs_api_backend_hyper::{IpfsClient, TryFromUri};
 use url::Url;
 
-use crate::types::{Cid, IpldCodec, MhCode};
+use crate::types::{BanyanCid, IpldCodec, MhCode, RipCid};
 
 /* Constants */
 
@@ -32,6 +34,56 @@ impl Deref for IpfsRpcClient {
     type Target = IpfsClient;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[async_trait(?Send)]
+impl DataStore for IpfsRpcClient {
+    async fn contains_cid(&self, cid: BanyanCid) -> Result<bool, DataStoreError> {
+        let rip_cid = RipCid::from(cid.clone());
+        self.has_block(&rip_cid).await.map_err(|e| e.into())
+    }
+
+    async fn remove(&mut self, cid: BanyanCid, recusrive: bool) -> Result<(), DataStoreError> {
+        let rip_cid = RipCid::from(cid.clone());
+        self.rm_block(&rip_cid, recusrive)
+            .await
+            .map_err(|e| e.into())
+    }
+
+    async fn retrieve(&self, cid: BanyanCid) -> Result<Vec<u8>, DataStoreError> {
+        let rip_cid = RipCid::from(cid.clone());
+        self.get_block(&rip_cid).await.map_err(|e| e.into())
+    }
+
+    async fn store(
+        &mut self,
+        cid: BanyanCid,
+        data: Vec<u8>,
+        immediate: bool,
+    ) -> Result<(), DataStoreError> {
+        // Save the data to a file
+        println!("Storing data to IPFS - value length: {}", data.len());
+        let rip_cid = RipCid::from(cid.clone());
+        let reader = std::io::Cursor::new(data);
+
+        let codec = rip_cid.codec();
+        let ipld_codec = IpldCodec::try_from(codec).unwrap();
+        let mh_code_int = rip_cid.hash().code();
+        let mh_code = match mh_code_int {
+            0x16 => MhCode::Sha3_256,
+            0x1e => MhCode::Blake3_256,
+            _ => MhCode::Blake3_256,
+        };
+        let res_cid = self
+            .put_block(ipld_codec, mh_code, reader)
+            .await
+            .map_err(|e| e.into())?;
+        if res_cid == rip_cid {
+            Ok(())
+        } else {
+            Err(DataStoreError::StoreFailure)
+        }
     }
 }
 
@@ -60,7 +112,7 @@ impl IpfsRpcClient {
     /// * the Cid of the data
     // NOTE: this does not support ALL MhCodes. If an unsupported code is passed, it will use our
     // default of blake3
-    pub async fn add_data<R>(&self, code: MhCode, data: R) -> Result<Cid, IpfsRpcClientError>
+    pub async fn add_data<R>(&self, code: MhCode, data: R) -> Result<RipCid, IpfsRpcClientError>
     where
         R: Read + Send + Sync + 'static + Unpin,
     {
@@ -75,7 +127,7 @@ impl IpfsRpcClient {
         options.cid_version = Some(DEFAULT_CID_VERSION);
 
         let response = self.add_with_options(data, options).await?;
-        let cid = Cid::from_str(&response.hash)?;
+        let cid = RipCid::from_str(&response.hash)?;
 
         Ok(cid)
     }
@@ -94,7 +146,7 @@ impl IpfsRpcClient {
         codec: IpldCodec,
         code: MhCode,
         data: R,
-    ) -> Result<Cid, IpfsRpcClientError>
+    ) -> Result<RipCid, IpfsRpcClientError>
     where
         R: Read + Send + Sync + 'static + Unpin,
     {
@@ -123,13 +175,30 @@ impl IpfsRpcClient {
 
         let hash = response.key;
 
-        let cid = Cid::from_str(&hash)?;
+        let cid = RipCid::from_str(&hash)?;
 
         Ok(cid)
     }
 
+    /// Remove a block from the IPFS node if it is pinned
+    pub async fn rm_block(&self, cid: &RipCid, recursive: bool) -> Result<(), IpfsRpcClientError> {
+        let rms = self
+            .pin_rm(&format!("{}", cid.to_string()), recursive)
+            .await?
+            .pins;
+        // Check if the cid is removed
+        if rms.contains(&cid.to_string()) {
+            Ok(())
+        } else {
+            Err(IpfsRpcClientError::Default(anyhow::anyhow!(
+                "Failed to remove cid: {}",
+                cid.to_string()
+            )))
+        }
+    }
+
     /// Check if the RPC endpoint is pinning the specified CID
-    pub async fn has_block(&self, cid: &Cid) -> Result<bool, IpfsRpcClientError> {
+    pub async fn has_block(&self, cid: &RipCid) -> Result<bool, IpfsRpcClientError> {
         let response = self
             .pin_ls(Some(&format!("{}", cid.to_string())), None)
             .await?;
@@ -139,14 +208,14 @@ impl IpfsRpcClient {
     }
 
     /// Get Block from IPFS
-    pub async fn get_block(&self, cid: &Cid) -> Result<Vec<u8>, IpfsRpcClientError> {
+    pub async fn get_block(&self, cid: &RipCid) -> Result<Vec<u8>, IpfsRpcClientError> {
         let stream = self.block_get(&cid.to_string());
 
         let block_data = stream.map_ok(|chunk| chunk.to_vec()).try_concat().await?;
         Ok(block_data)
     }
 
-    pub async fn get_block_send_safe(&self, cid: &Cid) -> Result<Vec<u8>, IpfsRpcClientError> {
+    pub async fn get_block_send_safe(&self, cid: &RipCid) -> Result<Vec<u8>, IpfsRpcClientError> {
         let cid = cid.clone();
         let client = self.clone();
         let response = tokio::task::spawn_blocking(move || {
@@ -179,6 +248,20 @@ pub enum IpfsRpcClientError {
     Client(#[from] ipfs_api_backend_hyper::Error),
     #[error("cid error")]
     Cid(#[from] wnfs::common::libipld::cid::Error),
+}
+
+// For now, just catch all errors and call than as StoreFailures
+impl Into<banyanfs::stores::DataStoreError> for IpfsRpcClientError {
+    fn into(self) -> banyanfs::stores::DataStoreError {
+        match self {
+            IpfsRpcClientError::Default(_) => DataStoreError::StoreFailure,
+            IpfsRpcClientError::Url(_) => DataStoreError::StoreFailure,
+            IpfsRpcClientError::Http(_) => DataStoreError::StoreFailure,
+            IpfsRpcClientError::Scheme(_) => DataStoreError::StoreFailure,
+            IpfsRpcClientError::Client(_) => DataStoreError::StoreFailure,
+            IpfsRpcClientError::Cid(_) => DataStoreError::StoreFailure,
+        }
+    }
 }
 
 mod tests {

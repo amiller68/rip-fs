@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
 
-use libipld::Ipld;
 use time::OffsetDateTime;
 
-use super::Cid;
+use super::{Rip, Cid, Ipld};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Object {
@@ -43,9 +42,10 @@ impl Into<Ipld> for Object {
             OBJECT_UPDATED_AT_LABEL.to_string(),
             Ipld::Integer(self.updated_at().unix_timestamp_nanos()),
         );
+        let data: 
         map.insert(
             OBJECT_DATA_LABEL.to_string(),
-            Ipld::Link(self.data().clone()),
+            Ipld::Link(self.data().into().clone()),
         );
         map.insert(
             OBJECT_METADATA_LABEL.to_string(),
@@ -91,6 +91,7 @@ impl TryFrom<Ipld> for Object {
                 ))
             }
         };
+        let data: Cid = Cid::from(data);
 
         let metadata = match map.get(OBJECT_METADATA_LABEL) {
             Some(Ipld::Map(metadata)) => metadata.clone(),

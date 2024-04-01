@@ -6,6 +6,8 @@ mod ipfs;
 mod state;
 mod types;
 
+pub use ipfs::IpfsRpcClient as IpfsStore;
+
 /// Sets up system panics to use the tracing infrastructure to log reported issues. This doesn't
 /// prevent the panic from taking out the service but ensures that it and any available information
 /// is properly reported using the standard logging mechanism.

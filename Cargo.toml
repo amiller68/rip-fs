@@ -45,3 +45,5 @@ tracing-subscriber = { version = "^0.3", default-features = false, features = [
   "time",
   "tracing",
 ] }
+tokio-util = "0.7.10"
+async-trait = "0.1.79"
