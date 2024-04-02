@@ -5,3 +5,4 @@ Encrypted storage against Ipfs using BanyanFs
 ## Requirements
 - Rust
 - Docker or Podman
+# blossom
