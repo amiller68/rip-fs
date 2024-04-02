@@ -1,12 +1,13 @@
-use std::convert::TryFrom;
+use chromadb::v1::{client::ChromaClientOptions, ChromaClient};
 
 use crate::config::Config;
 use crate::database::Database;
-use crate::ipfs::IpfsRpcClient;
+use crate::engine::OllamaEngine;
 
 pub struct State {
     sqlite_database: Database,
-    ipfs_rpc_client: IpfsRpcClient,
+    chroma_database: ChromaClient,
+    engine: OllamaEngine,
 }
 
 #[allow(dead_code)]
@@ -15,18 +16,26 @@ impl State {
         &self.sqlite_database
     }
 
-    pub fn ipfs_rpc_client(&self) -> &IpfsRpcClient {
-        &self.ipfs_rpc_client
+    pub fn chroma_database(&self) -> &ChromaClient {
+        &self.chroma_database
+    }
+
+    pub fn engine(&self) -> &OllamaEngine {
+        &self.engine
     }
 
     pub async fn from_config(config: &Config) -> Result<Self, StateSetupError> {
         let sqlite_database = Database::connect(&config.sqlite_database_url()).await?;
-        let ipfs_rpc_client = IpfsRpcClient::new(config.ipfs_rpc_api_url())?;
+        let chroma_database = ChromaClient::new(ChromaClientOptions {
+            url: config.chroma_database_url().to_string(),
+        });
+        let engine = OllamaEngine::new(config.ollama_server_url());
 
-        Ok((Self {
+        Ok(Self {
             sqlite_database,
-            ipfs_rpc_client,
-        }))
+            chroma_database,
+            engine,
+        })
     }
 }
 
@@ -34,6 +43,6 @@ impl State {
 pub enum StateSetupError {
     #[error("failed to setup the database: {0}")]
     DatabaseSetup(#[from] crate::database::DatabaseSetupError),
-    #[error("failed to setup the IPFS RPC client: {0}")]
-    IpfsRpcClientSetup(#[from] crate::ipfs::IpfsRpcClientError),
+    #[error("failed to setup the Chroma database: {0}")]
+    EngineSetup(#[from] crate::engine::OllamaEngineError),
 }

@@ -1,12 +1,13 @@
 #[allow(dead_code)]
 mod config;
-// mod crypt;
+#[allow(dead_code)]
 mod database;
-mod ipfs;
+mod engine;
 mod state;
-mod types;
+mod version;
 
-pub use ipfs::IpfsRpcClient as IpfsStore;
+pub use config::Config;
+pub use state::State;
 
 /// Sets up system panics to use the tracing infrastructure to log reported issues. This doesn't
 /// prevent the panic from taking out the service but ensures that it and any available information
@@ -26,11 +27,12 @@ pub fn register_panic_logger() {
 }
 
 pub fn report_version() {
-    let version = types::Version::new();
+    let version = version::Version::new();
     tracing::info!(
         build_profile = ?version.build_profile(),
         features = ?version.build_features(),
         version = ?version.version(),
+        repo_version = ?version.repo_version(),
         "service starting up"
     );
 }

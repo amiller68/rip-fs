@@ -5,8 +5,15 @@ use url::Url;
 
 #[derive(Debug)]
 pub struct Config {
+    // Database Config
     sqlite_database_url: Url,
-    ipfs_rpc_api_url: Url,
+    chroma_database_url: Url,
+
+    // Ollama Config
+    ollama_server_url: Url,
+    ollama_supervisor_model: String,
+    ollama_conversational_model: String,
+    ollama_image_model: String,
 }
 
 // TODO: arg parsing
@@ -18,25 +25,62 @@ impl Config {
 
         let sqlite_database_url_str = match env::var("SQLITE_DATABASE_URL") {
             Ok(url) => url,
-            Err(_) => {
-                tracing::warn!("No SQLITE_DATABASE_URL found in .env, using default");
-                "sqlite://:memory:".to_string()
+            Err(e) => {
+                tracing::warn!("No SQLITE_DATABASE_URL found in .env");
+                return Err(ConfigError::InvalidEnv(e));
             }
         };
         let sqlite_database_url = Url::parse(&sqlite_database_url_str)?;
 
-        let ipfs_rpc_api_url_str = match env::var("IPFS_RPC_API_URL") {
+        let chroma_database_url_str = match env::var("CHROMA_DATABASE_URL") {
             Ok(url) => url,
             Err(_) => {
-                tracing::warn!("No IPFS_RPC_API_URL found in .env, using default");
-                "http://localhost:5001".to_string()
+                tracing::warn!("No CHROMA_DATABASE_URL found in .env, using default");
+                "http://localhost:8000".to_string()
             }
         };
-        let ipfs_rpc_api_url = Url::parse(&ipfs_rpc_api_url_str)?;
+        let chroma_database_url = Url::parse(&chroma_database_url_str)?;
+
+        let ollama_server_url_str = match env::var("OLLAMA_SERVER_URL") {
+            Ok(url) => url,
+            Err(_) => {
+                tracing::warn!("No OLLAMA_SERVER_URL found in .env, using default");
+                "http://localhost:11434".to_string()
+            }
+        };
+        let ollama_server_url = Url::parse(&ollama_server_url_str)?;
+
+        let ollama_supervisor_model = match env::var("OLLAMA_SUPERVISOR_MODEL") {
+            Ok(model) => model,
+            Err(_) => {
+                tracing::warn!("No OLLAMA_SUPERVISOR_MODEL found in .env, using default");
+                "blossom-supervisor".to_string()
+            }
+        };
+
+        let ollama_conversational_model = match env::var("OLLAMA_CONVERSATIONAL_MODEL") {
+            Ok(model) => model,
+            Err(_) => {
+                tracing::warn!("No OLLAMA_CONVERSATIONAL_MODEL found in .env, using default");
+                "blossom-conversational".to_string()
+            }
+        };
+
+        let ollama_image_model = match env::var("OLLAMA_IMAGE_MODEL") {
+            Ok(model) => model,
+            Err(_) => {
+                tracing::warn!("No OLLAMA_IMAGE_MODEL found in .env, using default");
+                "blossom-image".to_string()
+            }
+        };
 
         Ok(Config {
             sqlite_database_url,
-            ipfs_rpc_api_url,
+            chroma_database_url,
+            ollama_server_url,
+            ollama_supervisor_model,
+            ollama_conversational_model,
+            ollama_image_model,
         })
     }
 
@@ -44,8 +88,12 @@ impl Config {
         &self.sqlite_database_url
     }
 
-    pub fn ipfs_rpc_api_url(&self) -> &Url {
-        &self.ipfs_rpc_api_url
+    pub fn chroma_database_url(&self) -> &Url {
+        &self.chroma_database_url
+    }
+
+    pub fn ollama_server_url(&self) -> &Url {
+        &self.ollama_server_url
     }
 }
 
